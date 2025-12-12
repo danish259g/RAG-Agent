@@ -6,8 +6,8 @@ dotenv.config({ path: ".env.local" });
 
 const CSV_FILE = "ted_talks_en.csv";
 const MODEL_NAME = "RPRTHPB-text-embedding-3-small";
-const CHUNK_SIZE_TOKENS = 2048;
-const OVERLAP_RATIO = 0.3;
+const CHUNK_SIZE_TOKENS = 512;
+const OVERLAP_RATIO = 0.25;
 const OVERLAP_TOKENS = Math.floor(CHUNK_SIZE_TOKENS * OVERLAP_RATIO);
 
 // Simple approximation: 1 token ~ 4 characters
