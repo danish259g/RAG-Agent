@@ -19,8 +19,12 @@ interface Talk {
     talk_id: string;
     title: string;
     transcript: string;
-    author: string; // mapped from speaker_1
+    author: string;
     url: string;
+    description: string;
+    topics: string;
+    views: string;
+    published_date: string;
 }
 
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -49,6 +53,10 @@ async function main() {
                     transcript: row.transcript,
                     author: row.speaker_1,
                     url: row.url,
+                    description: row.description,
+                    topics: row.topics,
+                    views: row.views,
+                    published_date: row.published_date
                 });
             })
             .on("end", () => {
@@ -78,8 +86,21 @@ async function main() {
                 console.log(`Reached max chunks limit (${MAX_CHUNKS}). Stopping.`);
                 break;
             }
-            totalChunks++; // Increment before processing to ensure strict limit
+            totalChunks++;
             const chunk = chunks[i];
+
+            // --- DATA ENRICHMENT START ---
+            // Context-aware embedding: Prepend metadata to the text being embedded
+            // This helps the model understand "What is this text about?" even if the chunk is just a fragment.
+            const enrichedText = `
+Title: ${talk.title}
+Speaker: ${talk.author}
+Description: ${talk.description}
+Topics: ${talk.topics}
+---
+${chunk}
+`.trim();
+            // --- DATA ENRICHMENT END ---
 
             let embedding: number[] = [];
 
@@ -87,7 +108,7 @@ async function main() {
                 try {
                     const response = await openai.embeddings.create({
                         model: MODEL_NAME,
-                        input: chunk,
+                        input: enrichedText, // Embed the enriched text
                     });
                     embedding = response.data[0].embedding;
                 } catch (e) {
@@ -107,7 +128,11 @@ async function main() {
                     title: talk.title,
                     url: talk.url,
                     author: talk.author,
-                    chunk_text: chunk,
+                    description: talk.description,
+                    topics: talk.topics, // Storing topics string allows for "contains" filtering later
+                    views: parseInt(talk.views) || 0,
+                    published_date: talk.published_date,
+                    chunk_text: chunk, // Store original raw chunk for display (clean reading)
                     chunk_index: i
                 }
             });
