@@ -33,8 +33,12 @@ const LIMIT = LIMIT_ARG ? parseInt(LIMIT_ARG.split("=")[1]) : 0;
 const MAX_CHUNKS_ARG = process.argv.find((arg) => arg.startsWith("--max-chunks="));
 const MAX_CHUNKS = MAX_CHUNKS_ARG ? parseInt(MAX_CHUNKS_ARG.split("=")[1]) : 0;
 
+import { CONFIG } from "../src/lib/config";
+import { smartChunk } from "../src/lib/chunking";
+
 async function main() {
     console.log(`Starting ingestion... Dry Run: ${DRY_RUN}, Limit (Talks): ${LIMIT || "None"}, Max Chunks: ${MAX_CHUNKS || "None"}`);
+    console.log(`Config: Chunk Size ${CONFIG.CHUNK_SIZE} tokens, Overlap ${CONFIG.OVERLAP_RATIO * 100}%`);
 
     // Lazy load clients to ensure env vars are loaded
     /* eslint-disable @typescript-eslint/no-var-requires */
@@ -76,7 +80,8 @@ async function main() {
     for (const talk of talks) {
         if (!talk.transcript) continue;
 
-        const chunks = chunkText(talk.transcript, CHUNK_SIZE_CHARS, OVERLAP_CHARS);
+        // Use Smart Chunking
+        const chunks = smartChunk(talk.transcript);
         console.log(`Talk "${talk.title}": ${chunks.length} chunks`);
 
         const vectors: any[] = [];
@@ -90,8 +95,6 @@ async function main() {
             const chunk = chunks[i];
 
             // --- DATA ENRICHMENT START ---
-            // Context-aware embedding: Prepend metadata to the text being embedded
-            // This helps the model understand "What is this text about?" even if the chunk is just a fragment.
             const enrichedText = `
 Title: ${talk.title}
 Speaker: ${talk.author}
@@ -107,8 +110,8 @@ ${chunk}
             if (!DRY_RUN) {
                 try {
                     const response = await openai.embeddings.create({
-                        model: MODEL_NAME,
-                        input: enrichedText, // Embed the enriched text
+                        model: CONFIG.EMBEDDING_MODEL,
+                        input: enrichedText,
                     });
                     embedding = response.data[0].embedding;
                 } catch (e) {
@@ -116,7 +119,6 @@ ${chunk}
                     continue;
                 }
             } else {
-                // Fake embedding for dry run
                 embedding = new Array(1536).fill(0.1);
             }
 
@@ -129,10 +131,10 @@ ${chunk}
                     url: talk.url,
                     author: talk.author,
                     description: talk.description,
-                    topics: talk.topics, // Storing topics string allows for "contains" filtering later
+                    topics: talk.topics,
                     views: parseInt(talk.views) || 0,
                     published_date: talk.published_date,
-                    chunk_text: chunk, // Store original raw chunk for display (clean reading)
+                    chunk_text: chunk,
                     chunk_index: i
                 }
             });
@@ -147,31 +149,11 @@ ${chunk}
             }
         }
 
-        // totalChunks is incremented inside the loop now
         if (MAX_CHUNKS && totalChunks >= MAX_CHUNKS) break;
     }
 
     console.log(`Ingestion complete. Total chunks: ${totalChunks}`);
 }
 
-function chunkText(text: string, chunkSize: number, overlap: number): string[] {
-    const chunks: string[] = [];
-    let start = 0;
-
-    while (start < text.length) {
-        let end = start + chunkSize;
-        if (end > text.length) {
-            end = text.length;
-        }
-
-        chunks.push(text.slice(start, end));
-
-        if (end === text.length) break;
-
-        start += (chunkSize - overlap);
-    }
-
-    return chunks;
-}
-
 main().catch(console.error);
+
