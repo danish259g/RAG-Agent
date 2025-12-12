@@ -26,9 +26,11 @@ interface Talk {
 const DRY_RUN = process.argv.includes("--dry-run");
 const LIMIT_ARG = process.argv.find((arg) => arg.startsWith("--limit="));
 const LIMIT = LIMIT_ARG ? parseInt(LIMIT_ARG.split("=")[1]) : 0;
+const MAX_CHUNKS_ARG = process.argv.find((arg) => arg.startsWith("--max-chunks="));
+const MAX_CHUNKS = MAX_CHUNKS_ARG ? parseInt(MAX_CHUNKS_ARG.split("=")[1]) : 0;
 
 async function main() {
-    console.log(`Starting ingestion... Dry Run: ${DRY_RUN}, Limit: ${LIMIT || "None"}`);
+    console.log(`Starting ingestion... Dry Run: ${DRY_RUN}, Limit (Talks): ${LIMIT || "None"}, Max Chunks: ${MAX_CHUNKS || "None"}`);
 
     // Lazy load clients to ensure env vars are loaded
     /* eslint-disable @typescript-eslint/no-var-requires */
@@ -72,6 +74,11 @@ async function main() {
         const vectors: any[] = [];
 
         for (let i = 0; i < chunks.length; i++) {
+            if (MAX_CHUNKS && totalChunks >= MAX_CHUNKS) {
+                console.log(`Reached max chunks limit (${MAX_CHUNKS}). Stopping.`);
+                break;
+            }
+            totalChunks++; // Increment before processing to ensure strict limit
             const chunk = chunks[i];
 
             let embedding: number[] = [];
@@ -115,7 +122,8 @@ async function main() {
             }
         }
 
-        totalChunks += chunks.length;
+        // totalChunks is incremented inside the loop now
+        if (MAX_CHUNKS && totalChunks >= MAX_CHUNKS) break;
     }
 
     console.log(`Ingestion complete. Total chunks: ${totalChunks}`);
