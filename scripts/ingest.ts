@@ -6,8 +6,8 @@ dotenv.config({ path: ".env.local" });
 
 const CSV_FILE = "ted_talks_en.csv";
 const MODEL_NAME = "RPRTHPB-text-embedding-3-small";
-const CHUNK_SIZE_TOKENS = 2048;
-const OVERLAP_RATIO = 0.3;
+const CHUNK_SIZE_TOKENS = 512;
+const OVERLAP_RATIO = 0.25;
 const OVERLAP_TOKENS = Math.floor(CHUNK_SIZE_TOKENS * OVERLAP_RATIO);
 
 // Simple approximation: 1 token ~ 4 characters
@@ -19,16 +19,22 @@ interface Talk {
     talk_id: string;
     title: string;
     transcript: string;
-    author: string; // mapped from speaker_1
+    author: string;
     url: string;
+    description: string;
+    topics: string;
+    views: string;
+    published_date: string;
 }
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const LIMIT_ARG = process.argv.find((arg) => arg.startsWith("--limit="));
 const LIMIT = LIMIT_ARG ? parseInt(LIMIT_ARG.split("=")[1]) : 0;
+const MAX_CHUNKS_ARG = process.argv.find((arg) => arg.startsWith("--max-chunks="));
+const MAX_CHUNKS = MAX_CHUNKS_ARG ? parseInt(MAX_CHUNKS_ARG.split("=")[1]) : 0;
 
 async function main() {
-    console.log(`Starting ingestion... Dry Run: ${DRY_RUN}, Limit: ${LIMIT || "None"}`);
+    console.log(`Starting ingestion... Dry Run: ${DRY_RUN}, Limit (Talks): ${LIMIT || "None"}, Max Chunks: ${MAX_CHUNKS || "None"}`);
 
     // Lazy load clients to ensure env vars are loaded
     /* eslint-disable @typescript-eslint/no-var-requires */
@@ -47,6 +53,10 @@ async function main() {
                     transcript: row.transcript,
                     author: row.speaker_1,
                     url: row.url,
+                    description: row.description,
+                    topics: row.topics,
+                    views: row.views,
+                    published_date: row.published_date
                 });
             })
             .on("end", () => {
@@ -72,7 +82,25 @@ async function main() {
         const vectors: any[] = [];
 
         for (let i = 0; i < chunks.length; i++) {
+            if (MAX_CHUNKS && totalChunks >= MAX_CHUNKS) {
+                console.log(`Reached max chunks limit (${MAX_CHUNKS}). Stopping.`);
+                break;
+            }
+            totalChunks++;
             const chunk = chunks[i];
+
+            // --- DATA ENRICHMENT START ---
+            // Context-aware embedding: Prepend metadata to the text being embedded
+            // This helps the model understand "What is this text about?" even if the chunk is just a fragment.
+            const enrichedText = `
+Title: ${talk.title}
+Speaker: ${talk.author}
+Description: ${talk.description}
+Topics: ${talk.topics}
+---
+${chunk}
+`.trim();
+            // --- DATA ENRICHMENT END ---
 
             let embedding: number[] = [];
 
@@ -80,7 +108,7 @@ async function main() {
                 try {
                     const response = await openai.embeddings.create({
                         model: MODEL_NAME,
-                        input: chunk,
+                        input: enrichedText, // Embed the enriched text
                     });
                     embedding = response.data[0].embedding;
                 } catch (e) {
@@ -100,7 +128,11 @@ async function main() {
                     title: talk.title,
                     url: talk.url,
                     author: talk.author,
-                    chunk_text: chunk,
+                    description: talk.description,
+                    topics: talk.topics, // Storing topics string allows for "contains" filtering later
+                    views: parseInt(talk.views) || 0,
+                    published_date: talk.published_date,
+                    chunk_text: chunk, // Store original raw chunk for display (clean reading)
                     chunk_index: i
                 }
             });
@@ -115,7 +147,8 @@ async function main() {
             }
         }
 
-        totalChunks += chunks.length;
+        // totalChunks is incremented inside the loop now
+        if (MAX_CHUNKS && totalChunks >= MAX_CHUNKS) break;
     }
 
     console.log(`Ingestion complete. Total chunks: ${totalChunks}`);

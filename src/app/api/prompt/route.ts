@@ -4,7 +4,7 @@ import { openai, pinecone } from "@/lib/clients";
 // Constants from assignment
 const EMBEDDING_MODEL = "RPRTHPB-text-embedding-3-small";
 const CHAT_MODEL = "RPRTHPB-gpt-5-mini";
-const TOP_K = 5; // Default top-k, can be up to 30
+const TOP_K = 15; // Default top-k, can be up to 30
 
 const SYSTEM_PROMPT = `You are a TED Talk assistant that answers questions strictly and only based on the TED dataset context provided to you (metadata and transcript passages). You must not use any external knowledge, the open internet, or information that is not explicitly contained in the retrieved context. If the answer cannot be determined from the provided context, respond: “I don’t know based on the provided TED data.” Always explain your answer using the given context, quoting or paraphrasing the relevant transcript or metadata when helpful.`;
 
@@ -38,12 +38,27 @@ export async function POST(req: NextRequest) {
             title: match.metadata?.title,
             chunk: match.metadata?.chunk_text,
             score: match.score,
+            author: match.metadata?.author,
+            description: match.metadata?.description,
+            topics: match.metadata?.topics,
+            views: match.metadata?.views,
+            published_date: match.metadata?.published_date,
+            url: match.metadata?.url,
         }));
 
         const contextText = retrievedChunks
             .map(
                 (chunk) =>
-                    `Title: ${chunk.title}\nTalk ID: ${chunk.talk_id}\nContent: ${chunk.chunk}\n----------------`
+                    `Title: ${chunk.title}
+Speaker: ${chunk.author}
+Description: ${chunk.description || "N/A"}
+Topics: ${chunk.topics || "N/A"}
+Views: ${chunk.views || "N/A"}
+Published: ${chunk.published_date || "N/A"}
+Link: ${chunk.url}
+Talk ID: ${chunk.talk_id}
+Content: ${chunk.chunk}
+----------------`
             )
             .join("\n\n");
 
